@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
 import { scenarioLabels } from "@/lib/practice";
+import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
 
 type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scenario; createdAt: string };
 type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
@@ -51,7 +52,11 @@ export default function Home() {
   }
 
   function stopRecording() {
-    recorderRef.current?.stop();
+    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+  }
+
+  function cancelDefaultTouch(event: React.TouchEvent<HTMLButtonElement>) {
+    event.preventDefault();
   }
 
   async function handleAudio(blob: Blob) {
@@ -138,8 +143,17 @@ export default function Home() {
             {scenarios.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
-        <button className="record" onClick={status === "recording" ? stopRecording : startRecording} disabled={["transcribing", "thinking", "speaking"].includes(status)}>
-          {status === "recording" ? "Stop & correct" : "Tap to speak"}
+        <button
+          className="record"
+          onPointerDown={startRecording}
+          onPointerUp={stopRecording}
+          onPointerLeave={stopRecording}
+          onPointerCancel={stopRecording}
+          onTouchStart={cancelDefaultTouch}
+          disabled={isRecordingButtonDisabled(status)}
+          aria-label="Hold to record German speech. Release to stop recording."
+        >
+          {getRecordingButtonLabel(status)}
         </button>
       </section>
 
