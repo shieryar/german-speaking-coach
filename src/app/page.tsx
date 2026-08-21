@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
 import { scenarioLabels } from "@/lib/practice";
+import { formatBytes, formatDiagnosticReport, getBlobSignature } from "@/lib/audioDiagnostics";
 import {
   convertRecordingToWav,
   shouldConvertRecordingToWav,
@@ -12,7 +13,7 @@ import {
   getPreferredRecordingMimeType,
   getRecordingTimeslice,
 } from "@/lib/audioUpload";
-import { formatAppVersion } from "@/lib/appVersion";
+import { APP_VERSION, formatAppVersion } from "@/lib/appVersion";
 import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
 
 type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scenario; createdAt: string };
@@ -28,8 +29,10 @@ export default function Home() {
   const [hasLoadedTurns, setHasLoadedTurns] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
+  const diagnosticsRef = useRef<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,30 +61,54 @@ export default function Home() {
     localStorage.setItem("german-speaking-coach-turns", JSON.stringify(turns.slice(0, 50)));
   }, [hasLoadedTurns, turns]);
 
+  function resetDiagnostics() {
+    const initial = [
+      `App version: ${APP_VERSION}`,
+      `Browser: ${navigator.userAgent}`,
+      `Started: ${new Date().toISOString()}`,
+    ];
+    diagnosticsRef.current = initial;
+    setDiagnostics(initial);
+  }
+
+  function appendDiagnostic(line: string) {
+    diagnosticsRef.current = [...diagnosticsRef.current, line];
+    setDiagnostics(diagnosticsRef.current);
+  }
+
   async function startRecording() {
+    resetDiagnostics();
     setError(null);
     setAudioUrl(null);
     chunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const preferredMimeType = getPreferredRecordingMimeType();
+      appendDiagnostic(`Preferred MIME: ${preferredMimeType || "browser default"}`);
       const recorder = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined);
       recorderRef.current = recorder;
+      appendDiagnostic(`Recorder MIME: ${recorder.mimeType || "not reported"}`);
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
         const mimeType = recorder.mimeType || preferredMimeType || "audio/webm";
-        await handleAudio(new Blob(chunksRef.current, { type: mimeType }), mimeType);
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        appendDiagnostic(`Chunks: ${chunksRef.current.length} (${chunksRef.current.map((chunk) => formatBytes(chunk.size)).join(", ") || "none"})`);
+        appendDiagnostic(`Recorded blob: ${blob.type || "no type"}, ${formatBytes(blob.size)}, signature ${await getBlobSignature(blob) || "empty"}`);
+        await handleAudio(blob, mimeType);
       };
       const timeslice = getRecordingTimeslice(recorder.mimeType || preferredMimeType);
+      appendDiagnostic(`Recording mode: ${timeslice === undefined ? "single finalized file" : `${timeslice} ms chunks`}`);
       if (timeslice === undefined) recorder.start();
       else recorder.start(timeslice);
       setStatus("recording");
     } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not access microphone";
+      appendDiagnostic(`Recording error: ${message}`);
       setStatus("error");
-      setError(e instanceof Error ? e.message : "Could not access microphone");
+      setError(message);
     }
   }
 
@@ -101,14 +128,21 @@ export default function Home() {
       let uploadBlob = blob;
       let uploadMimeType = mimeType;
       if (shouldConvertRecordingToWav(mimeType)) {
+        appendDiagnostic("Conversion: MP4 → mono 16-bit PCM WAV started");
         uploadBlob = await convertRecordingToWav(blob);
         uploadMimeType = "audio/wav";
+        appendDiagnostic(`Converted WAV: ${formatBytes(uploadBlob.size)}, signature ${await getBlobSignature(uploadBlob)}`);
+      } else {
+        appendDiagnostic("Conversion: skipped for this MIME type");
       }
 
+      const uploadFileName = buildRecordingFileName(uploadMimeType);
+      appendDiagnostic(`Upload: ${uploadFileName}, ${uploadMimeType}, ${formatBytes(uploadBlob.size)}`);
       const form = new FormData();
-      form.append("audio", uploadBlob, buildRecordingFileName(uploadMimeType));
+      form.append("audio", uploadBlob, uploadFileName);
       const transcribe = await fetch("/api/transcribe", { method: "POST", body: form });
       const transcribeData = await transcribe.json();
+      appendDiagnostic(`Transcription response: HTTP ${transcribe.status} ${JSON.stringify(transcribeData)}`);
       if (!transcribe.ok) throw new Error(transcribeData.error || "Transcription failed");
 
       setStatus("thinking");
@@ -145,9 +179,15 @@ export default function Home() {
       await audio.play();
       audio.onended = () => setStatus("idle");
     } catch (e) {
+      const message = e instanceof Error ? e.message : "Something went wrong";
+      appendDiagnostic(`Processing error: ${message}`);
       setStatus("error");
-      setError(e instanceof Error ? e.message : "Something went wrong");
+      setError(message);
     }
+  }
+
+  async function copyDiagnostics() {
+    await navigator.clipboard.writeText(formatDiagnosticReport(diagnosticsRef.current));
   }
 
   function clearProgress() {
@@ -202,6 +242,15 @@ export default function Home() {
       </section>
 
       {error && <section className="card errorBox"><strong>Problem:</strong> {error}</section>}
+
+      {diagnostics.length > 0 && (
+        <details className="card diagnosticBox" open={status === "error"}>
+          <summary>Audio troubleshooting report</summary>
+          <p className="muted">This contains technical metadata only, not your recorded audio.</p>
+          <pre>{formatDiagnosticReport(diagnostics)}</pre>
+          <button type="button" className="ghost" onClick={copyDiagnostics}>Copy troubleshooting report</button>
+        </details>
+      )}
 
       <section className="grid">
         <article className="card conversation">
