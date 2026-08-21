@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
 import { scenarioLabels } from "@/lib/practice";
 import {
+  convertRecordingToWav,
+  shouldConvertRecordingToWav,
+} from "@/lib/audioConversion";
+import {
   buildRecordingFileName,
   getPreferredRecordingMimeType,
   getRecordingTimeslice,
@@ -93,8 +97,16 @@ export default function Home() {
     try {
       if (blob.size < 1000) throw new Error("Recording was too short or empty. Hold the button while speaking, then release.");
       setStatus("transcribing");
+
+      let uploadBlob = blob;
+      let uploadMimeType = mimeType;
+      if (shouldConvertRecordingToWav(mimeType)) {
+        uploadBlob = await convertRecordingToWav(blob);
+        uploadMimeType = "audio/wav";
+      }
+
       const form = new FormData();
-      form.append("audio", blob, buildRecordingFileName(mimeType));
+      form.append("audio", uploadBlob, buildRecordingFileName(uploadMimeType));
       const transcribe = await fetch("/api/transcribe", { method: "POST", body: form });
       const transcribeData = await transcribe.json();
       if (!transcribe.ok) throw new Error(transcribeData.error || "Transcription failed");
