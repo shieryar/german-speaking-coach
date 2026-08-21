@@ -3,7 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
 import { scenarioLabels } from "@/lib/practice";
-import { buildRecordingFileName, getPreferredRecordingMimeType } from "@/lib/audioUpload";
+import {
+  buildRecordingFileName,
+  getPreferredRecordingMimeType,
+  getRecordingTimeslice,
+} from "@/lib/audioUpload";
 import { formatAppVersion } from "@/lib/appVersion";
 import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
 
@@ -67,7 +71,9 @@ export default function Home() {
         const mimeType = recorder.mimeType || preferredMimeType || "audio/webm";
         await handleAudio(new Blob(chunksRef.current, { type: mimeType }), mimeType);
       };
-      recorder.start(1000);
+      const timeslice = getRecordingTimeslice(recorder.mimeType || preferredMimeType);
+      if (timeslice === undefined) recorder.start();
+      else recorder.start(timeslice);
       setStatus("recording");
     } catch (e) {
       setStatus("error");

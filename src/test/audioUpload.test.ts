@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildRecordingFileName, getAudioExtension, getPreferredRecordingMimeType } from "@/lib/audioUpload";
+import {
+  buildRecordingFileName,
+  getAudioExtension,
+  getPreferredRecordingMimeType,
+  getRecordingTimeslice,
+} from "@/lib/audioUpload";
 
 describe("audio upload helpers", () => {
   it("uses a filename extension that matches the recorded MIME type", () => {
@@ -20,5 +25,11 @@ describe("audio upload helpers", () => {
     } as unknown as typeof MediaRecorder;
 
     expect(getPreferredRecordingMimeType(mediaRecorder)).toBe("audio/mp4");
+  });
+
+  it("records MP4 as one complete file instead of concatenated timeslice fragments", () => {
+    expect(getRecordingTimeslice("audio/mp4")).toBeUndefined();
+    expect(getRecordingTimeslice("audio/mp4;codecs=mp4a.40.2")).toBeUndefined();
+    expect(getRecordingTimeslice("audio/webm;codecs=opus")).toBe(1000);
   });
 });

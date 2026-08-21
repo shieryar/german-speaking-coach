@@ -11,6 +11,13 @@ export function getPreferredRecordingMimeType(mediaRecorder: typeof MediaRecorde
   return RECORDING_MIME_CANDIDATES.find((mimeType) => mediaRecorder.isTypeSupported(mimeType));
 }
 
+export function getRecordingTimeslice(mimeType: string | undefined): number | undefined {
+  // Safari records MP4. Its timesliced chunks are ISO-BMFF fragments and
+  // concatenating them can produce a file that transcription APIs reject.
+  // Let Safari finalize one complete MP4 when stop() is called instead.
+  return (mimeType || "").toLowerCase().includes("mp4") ? undefined : 1000;
+}
+
 export function getAudioExtension(mimeType: string | undefined) {
   const normalized = (mimeType || "").toLowerCase();
   if (normalized.includes("mp4")) return "mp4";
