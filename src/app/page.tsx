@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
 import { scenarioLabels } from "@/lib/practice";
+import { buildRecordingFileName, getPreferredRecordingMimeType } from "@/lib/audioUpload";
 import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
 
 type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scenario; createdAt: string };
@@ -14,19 +15,39 @@ export default function Home() {
   const [mode, setMode] = useState<PracticeMode>("conversation");
   const [scenario, setScenario] = useState<Scenario>("job-interview");
   const [status, setStatus] = useState<Status>("idle");
-  const [turns, setTurns] = useState<Turn[]>(() => {
-    if (typeof window === "undefined") return [];
-    const saved = window.localStorage.getItem("german-speaking-coach-turns");
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [hasLoadedTurns, setHasLoadedTurns] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    window.setTimeout(() => {
+      if (cancelled) return;
+
+      try {
+        const saved = window.localStorage.getItem("german-speaking-coach-turns");
+        setTurns(saved ? JSON.parse(saved) : []);
+      } catch {
+        window.localStorage.removeItem("german-speaking-coach-turns");
+        setTurns([]);
+      } finally {
+        setHasLoadedTurns(true);
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedTurns) return;
     localStorage.setItem("german-speaking-coach-turns", JSON.stringify(turns.slice(0, 50)));
-  }, [turns]);
+  }, [hasLoadedTurns, turns]);
 
   async function startRecording() {
     setError(null);
@@ -34,16 +55,18 @@ export default function Home() {
     chunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
+      const preferredMimeType = getPreferredRecordingMimeType();
+      const recorder = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) chunksRef.current.push(event.data);
       };
       recorder.onstop = async () => {
         stream.getTracks().forEach((track) => track.stop());
-        await handleAudio(new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" }));
+        const mimeType = recorder.mimeType || preferredMimeType || "audio/webm";
+        await handleAudio(new Blob(chunksRef.current, { type: mimeType }), mimeType);
       };
-      recorder.start();
+      recorder.start(1000);
       setStatus("recording");
     } catch (e) {
       setStatus("error");
@@ -59,11 +82,12 @@ export default function Home() {
     event.preventDefault();
   }
 
-  async function handleAudio(blob: Blob) {
+  async function handleAudio(blob: Blob, mimeType: string) {
     try {
+      if (blob.size < 1000) throw new Error("Recording was too short or empty. Hold the button while speaking, then release.");
       setStatus("transcribing");
       const form = new FormData();
-      form.append("audio", blob, "speech.webm");
+      form.append("audio", blob, buildRecordingFileName(mimeType));
       const transcribe = await fetch("/api/transcribe", { method: "POST", body: form });
       const transcribeData = await transcribe.json();
       if (!transcribe.ok) throw new Error(transcribeData.error || "Transcription failed");
@@ -162,7 +186,7 @@ export default function Home() {
       <section className="grid">
         <article className="card conversation">
           <h2>Current turn</h2>
-          {!latest && <p className="muted">Start by tapping “Tap to speak”. The tutor will show and speak its reply.</p>}
+          {!latest && <p className="muted">Start by holding “Hold to speak”. Release when you finish. The tutor will show and speak its reply.</p>}
           {latest && (
             <div className="turn">
               <Block title="You said" text={latest.transcript} />
