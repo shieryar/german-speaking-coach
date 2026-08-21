@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
 import { scenarioLabels } from "@/lib/practice";
 import { buildRecordingFileName, getPreferredRecordingMimeType } from "@/lib/audioUpload";
+import { formatAppVersion } from "@/lib/appVersion";
 import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
 
 type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scenario; createdAt: string };
@@ -149,6 +150,7 @@ export default function Home() {
           <p className="eyebrow">B1/B2 German · workplace · interviews · meetings</p>
           <h1>German Speaking Coach</h1>
           <p>No login. Speak on your iPhone, see your transcript, corrected German, a better professional version, and hear the tutor reply.</p>
+          <p className="versionBadge">{formatAppVersion()}</p>
         </div>
         <div className={`status ${status}`}>{statusLabel(status)}</div>
       </section>
