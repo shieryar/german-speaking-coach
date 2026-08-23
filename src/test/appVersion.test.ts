@@ -3,7 +3,7 @@ import { APP_VERSION, formatAppVersion } from "@/lib/appVersion";
 
 describe("app version", () => {
   it("shows the current deployed app version", () => {
-    expect(APP_VERSION).toBe("0.5");
-    expect(formatAppVersion()).toBe("Version 0.5");
+    expect(APP_VERSION).toBe("0.6");
+    expect(formatAppVersion()).toBe("Version 0.6");
   });
 });

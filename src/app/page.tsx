@@ -15,7 +15,12 @@ import {
 } from "@/lib/audioUpload";
 import { APP_VERSION, formatAppVersion } from "@/lib/appVersion";
 import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
-import { playTutorAudio } from "@/lib/audioPlayback";
+import {
+  playTutorAudio,
+  primeTutorAudio,
+  revokeObsoleteAudioUrl,
+  setTutorAudioSource,
+} from "@/lib/audioPlayback";
 
 type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scenario; createdAt: string };
 type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
@@ -35,6 +40,10 @@ export default function Home() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const diagnosticsRef = useRef<string[]>([]);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const audioPrimePendingRef = useRef(false);
+  const audioPrimedRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +72,13 @@ export default function Home() {
     localStorage.setItem("german-speaking-coach-turns", JSON.stringify(turns.slice(0, 50)));
   }, [hasLoadedTurns, turns]);
 
+  useEffect(() => {
+    return () => {
+      revokeObsoleteAudioUrl(audioUrlRef.current, null);
+      audioUrlRef.current = null;
+    };
+  }, []);
+
   function resetDiagnostics() {
     const initial = [
       `App version: ${APP_VERSION}`,
@@ -82,7 +98,6 @@ export default function Home() {
     resetDiagnostics();
     setError(null);
     setPlaybackNotice(null);
-    setAudioUrl(null);
     chunksRef.current = [];
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -115,8 +130,38 @@ export default function Home() {
     }
   }
 
+  function primePersistentTutorAudio() {
+    const audio = audioElementRef.current;
+    if (!audio) {
+      appendDiagnostic("Autoplay prime: persistent media element unavailable");
+      return;
+    }
+    if (audioPrimedRef.current) {
+      appendDiagnostic("Autoplay prime: persistent media element already primed");
+      return;
+    }
+    if (audioPrimePendingRef.current) return;
+
+    audioPrimePendingRef.current = true;
+    appendDiagnostic("Autoplay prime: requested on persistent media element during recording release");
+    void primeTutorAudio(audio)
+      .then((result) => {
+        audioPrimePendingRef.current = false;
+        audioPrimedRef.current = result === "primed";
+        appendDiagnostic(`Autoplay prime: ${result}`);
+      })
+      .catch((primeError) => {
+        audioPrimePendingRef.current = false;
+        const name = primeError instanceof Error ? primeError.name : "UnknownError";
+        appendDiagnostic(`Autoplay prime: failed (${name})`);
+      });
+  }
+
   function stopRecording() {
-    if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    if (recorderRef.current?.state === "recording") {
+      primePersistentTutorAudio();
+      recorderRef.current.stop();
+    }
   }
 
   function cancelDefaultTouch(event: React.TouchEvent<HTMLButtonElement>) {
@@ -177,14 +222,29 @@ export default function Home() {
       }
       const speechBlob = await speech.blob();
       const url = URL.createObjectURL(speechBlob);
+      const audio = audioElementRef.current;
+      if (!audio) {
+        URL.revokeObjectURL(url);
+        throw new Error("Persistent tutor audio element is unavailable");
+      }
+
+      const previousUrl = audioUrlRef.current;
+      setTutorAudioSource(audio, url);
+      audioUrlRef.current = url;
       setAudioUrl(url);
-      const audio = new Audio(url);
+      appendDiagnostic("Playback source: persistent media element with generated object URL");
+      if (revokeObsoleteAudioUrl(previousUrl, url)) {
+        appendDiagnostic("Playback cleanup: revoked previous tutor audio object URL");
+      }
+
       audio.onended = () => setStatus("idle");
       const playback = await playTutorAudio(audio);
       if (playback === "manual") {
-        appendDiagnostic("Playback: Safari blocked autoplay; manual Play control shown");
+        appendDiagnostic("Playback autoplay: blocked with NotAllowedError; manual Play control available on the same element");
         setPlaybackNotice("Safari blocked automatic audio. Tap Play below to hear the tutor reply.");
         setStatus("idle");
+      } else {
+        appendDiagnostic("Playback autoplay: started on persistent media element");
       }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Something went wrong";
@@ -272,9 +332,9 @@ export default function Home() {
               <Block title="Better professional version" text={latest.betterVersion} />
               <Block title="Why" text={latest.explanation} />
               <Block title="Tutor says" text={latest.tutorReply} tutor />
-              {audioUrl && <audio controls src={audioUrl} className="audio" />}
             </div>
           )}
+          <audio ref={audioElementRef} controls className="audio" hidden={!audioUrl} />
         </article>
 
         <aside className="card progress">
