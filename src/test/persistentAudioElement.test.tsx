@@ -75,6 +75,21 @@ describe("persistent tutor audio element", () => {
     vi.unstubAllGlobals();
   });
 
+  it("starts priming synchronously on recording press before microphone access resolves", () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn(() => new Promise(() => undefined)),
+      },
+    });
+    const { container } = render(<Home />);
+    const persistentAudio = container.querySelector("audio");
+
+    fireEvent.pointerDown(screen.getByRole("button", { name: /hold to record/i }));
+
+    expect(playedElements).toEqual([persistentAudio]);
+  });
+
   it("primes and plays every reply through the same visible media element", async () => {
     const { container } = render(<Home />);
     const persistentAudio = container.querySelector("audio");

@@ -96,6 +96,7 @@ export default function Home() {
 
   async function startRecording() {
     resetDiagnostics();
+    primePersistentTutorAudio("recording press");
     setError(null);
     setPlaybackNotice(null);
     chunksRef.current = [];
@@ -130,7 +131,7 @@ export default function Home() {
     }
   }
 
-  function primePersistentTutorAudio() {
+  function primePersistentTutorAudio(gesture: "recording press" | "recording release") {
     const audio = audioElementRef.current;
     if (!audio) {
       appendDiagnostic("Autoplay prime: persistent media element unavailable");
@@ -143,7 +144,7 @@ export default function Home() {
     if (audioPrimePendingRef.current) return;
 
     audioPrimePendingRef.current = true;
-    appendDiagnostic("Autoplay prime: requested on persistent media element during recording release");
+    appendDiagnostic(`Autoplay prime: requested on persistent media element during ${gesture}`);
     void primeTutorAudio(audio)
       .then((result) => {
         audioPrimePendingRef.current = false;
@@ -159,7 +160,7 @@ export default function Home() {
 
   function stopRecording() {
     if (recorderRef.current?.state === "recording") {
-      primePersistentTutorAudio();
+      primePersistentTutorAudio("recording release");
       recorderRef.current.stop();
     }
   }
