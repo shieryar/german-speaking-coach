@@ -15,6 +15,7 @@ import {
 } from "@/lib/audioUpload";
 import { APP_VERSION, formatAppVersion } from "@/lib/appVersion";
 import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
+import { playTutorAudio } from "@/lib/audioPlayback";
 
 type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scenario; createdAt: string };
 type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
@@ -28,6 +29,7 @@ export default function Home() {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [hasLoadedTurns, setHasLoadedTurns] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -79,6 +81,7 @@ export default function Home() {
   async function startRecording() {
     resetDiagnostics();
     setError(null);
+    setPlaybackNotice(null);
     setAudioUrl(null);
     chunksRef.current = [];
     try {
@@ -176,8 +179,13 @@ export default function Home() {
       const url = URL.createObjectURL(speechBlob);
       setAudioUrl(url);
       const audio = new Audio(url);
-      await audio.play();
       audio.onended = () => setStatus("idle");
+      const playback = await playTutorAudio(audio);
+      if (playback === "manual") {
+        appendDiagnostic("Playback: Safari blocked autoplay; manual Play control shown");
+        setPlaybackNotice("Safari blocked automatic audio. Tap Play below to hear the tutor reply.");
+        setStatus("idle");
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : "Something went wrong";
       appendDiagnostic(`Processing error: ${message}`);
@@ -242,6 +250,7 @@ export default function Home() {
       </section>
 
       {error && <section className="card errorBox"><strong>Problem:</strong> {error}</section>}
+      {playbackNotice && <section className="card"><strong>Audio:</strong> {playbackNotice}</section>}
 
       {diagnostics.length > 0 && (
         <details className="card diagnosticBox" open={status === "error"}>
