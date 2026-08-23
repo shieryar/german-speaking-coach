@@ -36,7 +36,7 @@ details { border-top: 1px solid rgba(255,255,255,.09); padding: 12px 0; }
 summary { cursor: pointer; color: var(--accent); }
 @keyframes pulse { 50% { opacity: .45; } }
 @media (max-width: 760px) {
-  .shell { padding: 10px; }
+  .shell { padding: 10px 10px calc(98px + env(safe-area-inset-bottom)); }
   .hero, .controls, .grid { grid-template-columns: 1fr; display: grid; }
 
   /* Keep the speaking workflow above the fold on an iPhone. */
@@ -44,7 +44,19 @@ summary { cursor: pointer; color: var(--accent); }
   .heroCopy, .practiceOption { display: none; }
   .status { width: fit-content; padding: 7px 11px; font-size: .82rem; background: rgba(19, 26, 46, .86); }
 
-  .controls { margin-bottom: 8px; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+  .controls {
+    position: fixed;
+    z-index: 10;
+    right: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    left: 10px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
   .record { width: 100%; min-height: 64px; font-size: 1.2rem; padding: 18px; }
 
   .conversation { padding: 16px; border-radius: 20px; }
