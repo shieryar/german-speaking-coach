@@ -35,4 +35,26 @@ button:disabled { opacity: .55; cursor: wait; }
 details { border-top: 1px solid rgba(255,255,255,.09); padding: 12px 0; }
 summary { cursor: pointer; color: var(--accent); }
 @keyframes pulse { 50% { opacity: .45; } }
-@media (max-width: 760px) { .shell { padding: 14px; } .hero, .controls, .grid { grid-template-columns: 1fr; display: grid; } .status { width: fit-content; } .record { width: 100%; font-size: 1.15rem; padding: 18px; } }
+@media (max-width: 760px) {
+  .shell { padding: 10px; }
+  .hero, .controls, .grid { grid-template-columns: 1fr; display: grid; }
+
+  /* Keep the speaking workflow above the fold on an iPhone. */
+  .hero { justify-items: end; margin-bottom: 8px; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+  .heroCopy, .practiceOption { display: none; }
+  .status { width: fit-content; padding: 7px 11px; font-size: .82rem; background: rgba(19, 26, 46, .86); }
+
+  .controls { margin-bottom: 8px; padding: 0; border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+  .record { width: 100%; min-height: 64px; font-size: 1.2rem; padding: 18px; }
+
+  .conversation { padding: 16px; border-radius: 20px; }
+  .conversation h2 { margin-bottom: 10px; font-size: 1.25rem; }
+  .conversation > .muted { margin: 0; line-height: 1.45; }
+  .block { margin: 9px 0; padding: 12px; border-radius: 14px; }
+  .block span { margin-bottom: 5px; }
+  .block p { font-size: 1rem; line-height: 1.4; }
+
+  /* Secondary information remains available on larger screens. */
+  .progress, .history, .diagnosticBox:not([open]) { display: none; }
+  .errorBox, .diagnosticBox { margin-bottom: 8px; }
+}

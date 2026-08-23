@@ -273,7 +273,7 @@ export default function Home() {
   return (
     <main className="shell">
       <section className="hero card">
-        <div>
+        <div className="heroCopy">
           <p className="eyebrow">B1/B2 German · workplace · interviews · meetings</p>
           <h1>German Speaking Coach</h1>
           <p>No login. Speak on your iPhone, see your transcript, corrected German, a better professional version, and hear the tutor reply.</p>
@@ -283,14 +283,14 @@ export default function Home() {
       </section>
 
       <section className="controls card">
-        <label>
+        <label className="practiceOption">
           Mode
           <select value={mode} onChange={(e) => setMode(e.target.value as PracticeMode)}>
             <option value="conversation">Conversation first</option>
             <option value="strict">Strict tutor</option>
           </select>
         </label>
-        <label>
+        <label className="practiceOption">
           Scenario
           <select value={scenario} onChange={(e) => setScenario(e.target.value as Scenario)}>
             {scenarios.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
