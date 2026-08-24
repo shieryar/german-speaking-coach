@@ -53,6 +53,7 @@ describe("persistent tutor audio element", () => {
       }))
       .mockResolvedValueOnce(new Response(JSON.stringify({
         transcript: "Ich arbeite.",
+        assessment: "correct",
         corrected: "Ich arbeite.",
         betterVersion: "Ich arbeite als Entwickler.",
         explanation: "Already correct.",
@@ -103,6 +104,8 @@ describe("persistent tutor audio element", () => {
     fireEvent.pointerUp(recordButton);
 
     await screen.findByText("Woran arbeiten Sie gerade?");
+    expect(screen.getByText(/Correct as spoken/)).toBeTruthy();
+    expect(screen.getByText("Optional alternative")).toBeTruthy();
     await waitFor(() => expect(playedElements).toHaveLength(2));
 
     expect(playedElements[0]).toBe(persistentAudio);

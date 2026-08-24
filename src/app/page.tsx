@@ -266,6 +266,9 @@ export default function Home() {
   }
 
   const latest = turns[0];
+  const latestIsCorrect = latest
+    ? latest.assessment === "correct" || (!latest.assessment && latest.corrected.trim() === latest.transcript.trim())
+    : false;
   const mistakeCounts = turns.flatMap((t) => t.mistakes).reduce<Record<string, number>>((acc, mistake) => {
     acc[mistake.topic] = (acc[mistake.topic] || 0) + 1;
     return acc;
@@ -424,9 +427,16 @@ export default function Home() {
           {!latest && <p className="muted">Start by holding “Hold to speak”. Release when you finish. The tutor will show and speak its reply.</p>}
           {latest && (
             <div className="turn">
+              <p className={`assessment ${latestIsCorrect ? "correct" : "needsCorrection"}`}>
+                {latestIsCorrect ? "✓ Correct as spoken" : "Correction needed"}
+              </p>
               <Block title="You said" text={latest.transcript} />
-              <Block title="Corrected German" text={latest.corrected} highlight />
-              <Block title="Better professional version" text={latest.betterVersion} />
+              <Block
+                title={latestIsCorrect ? "Your correct German" : "Corrected German"}
+                text={latest.corrected}
+                highlight
+              />
+              <Block title={latestIsCorrect ? "Optional alternative" : "Better professional version"} text={latest.betterVersion} />
               <Block title="Why" text={latest.explanation} />
               <Block title="Tutor says" text={latest.tutorReply} tutor />
             </div>
