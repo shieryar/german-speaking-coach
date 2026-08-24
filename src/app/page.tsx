@@ -37,6 +37,7 @@ export default function Home() {
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<string[]>([]);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const diagnosticsRef = useRef<string[]>([]);
@@ -279,8 +280,103 @@ export default function Home() {
           <p>No login. Speak on your iPhone, see your transcript, corrected German, a better professional version, and hear the tutor reply.</p>
           <p className="versionBadge">{formatAppVersion()}</p>
         </div>
-        <div className={`status ${status}`}>{statusLabel(status)}</div>
+        <div className="mobileTopBar">
+          <button
+            type="button"
+            className="mobileMenuButton"
+            aria-label="Open practice menu"
+            aria-haspopup="dialog"
+            aria-expanded={isMobileMenuOpen}
+            onClick={() => setIsMobileMenuOpen(true)}
+          >
+            <span aria-hidden="true">☰</span> Menu
+          </button>
+          <div className={`status ${status}`}>{statusLabel(status)}</div>
+        </div>
       </section>
+
+      {isMobileMenuOpen && (
+        <div className="mobileMenuOverlay">
+          <button
+            type="button"
+            className="mobileMenuBackdrop"
+            aria-label="Close practice menu"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+          <section className="mobileMenuSheet" role="dialog" aria-modal="true" aria-label="Practice menu">
+            <div className="mobileMenuHeader">
+              <div>
+                <p className="eyebrow">German Speaking Coach</p>
+                <h2>Practice menu</h2>
+              </div>
+              <button
+                type="button"
+                className="mobileMenuClose"
+                aria-label="Close practice menu"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mobileMenuOptions">
+              <label>
+                Mode
+                <select value={mode} onChange={(e) => setMode(e.target.value as PracticeMode)}>
+                  <option value="conversation">Conversation first</option>
+                  <option value="strict">Strict tutor</option>
+                </select>
+              </label>
+              <label>
+                Scenario
+                <select value={scenario} onChange={(e) => setScenario(e.target.value as Scenario)}>
+                  {scenarios.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <section className="mobileMenuSection">
+              <div className="progressHeader">
+                <h2>Saved progress</h2>
+                <button type="button" onClick={clearProgress} className="ghost">Clear</button>
+              </div>
+              <p>{turns.length} practice turns saved on this device.</p>
+              <h3>Repeated topics</h3>
+              {Object.keys(mistakeCounts).length === 0 ? <p className="muted">Mistakes will appear here after practice.</p> : (
+                <ul>{Object.entries(mistakeCounts).sort((a,b)=>b[1]-a[1]).map(([topic,count]) => <li key={topic}>{topic}: {count}</li>)}</ul>
+              )}
+            </section>
+
+            <section className="mobileMenuSection">
+              <h2>Recent practice</h2>
+              {turns.slice(1, 8).length === 0 && <p className="muted">Earlier practice turns will appear here.</p>}
+              {turns.slice(1, 8).map((turn) => (
+                <details key={turn.id}>
+                  <summary>{new Date(turn.createdAt).toLocaleString()} · {scenarioLabels[turn.scenario]} · {turn.mode}</summary>
+                  <p><strong>You:</strong> {turn.transcript}</p>
+                  <p><strong>Corrected:</strong> {turn.corrected}</p>
+                  <p><strong>Tutor:</strong> {turn.tutorReply}</p>
+                </details>
+              ))}
+            </section>
+
+            <section className="mobileMenuSection">
+              <h2>Troubleshooting</h2>
+              {diagnostics.length === 0 ? (
+                <p className="muted">A technical report will be available here after you start a recording.</p>
+              ) : (
+                <>
+                  <p className="muted">This contains technical metadata only, not your recorded audio.</p>
+                  <pre className="mobileDiagnosticReport">{formatDiagnosticReport(diagnostics)}</pre>
+                  <button type="button" className="ghost" onClick={copyDiagnostics}>Copy troubleshooting report</button>
+                </>
+              )}
+            </section>
+
+            <p className="versionBadge mobileMenuVersion">{formatAppVersion()}</p>
+          </section>
+        </div>
+      )}
 
       <section className="controls card">
         <label className="practiceOption">
