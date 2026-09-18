@@ -4,13 +4,15 @@ A no-login iPhone-friendly German B1/B2 speaking coach for job communication.
 
 ## Features
 
-- Conversation-first and strict-tutor modes
-- Workplace/job scenarios: interviews, meetings, email phrasing, small talk, project explanations
+- Five modes: conversation first, strict tutor, guided practice, interview simulation, fluency practice
+- Ten workplace/job scenarios: interviews, meetings, email phrasing, small talk, project explanations, presentations, professional phone calls, customer support, giving constructive feedback, professional networking
 - iPhone microphone recording in the browser
 - Transcript of what you said
 - Corrected German, better professional version, short English explanation
 - German tutor reply shown on screen and spoken aloud
 - Progress saved locally in the browser with no account/login
+
+Guided practice offers a German sentence starter and a simple question for each step. Interview simulation asks realistic interview questions about the selected scenario. Fluency practice encourages longer answers with reasons and examples, while keeping corrections in the written feedback.
 
 ## Local setup
 

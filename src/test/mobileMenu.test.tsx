@@ -23,6 +23,21 @@ describe("mobile practice menu", () => {
     expect((scenario as HTMLSelectElement).value).toBe("job-interview");
     fireEvent.change(mode, { target: { value: "strict" } });
     expect((mode as HTMLSelectElement).value).toBe("strict");
+    expect(within(mode).getAllByRole("option")).toHaveLength(5);
+    expect(within(scenario).getAllByRole("option")).toHaveLength(10);
+
+    for (const value of ["guided", "interview", "fluency"]) {
+      fireEvent.change(mode, { target: { value } });
+      for (const select of screen.getAllByLabelText("Mode")) {
+        expect((select as HTMLSelectElement).value).toBe(value);
+      }
+    }
+    for (const value of ["presentation", "phone-call", "customer-support", "giving-feedback", "networking"]) {
+      fireEvent.change(scenario, { target: { value } });
+      for (const select of screen.getAllByLabelText("Scenario")) {
+        expect((select as HTMLSelectElement).value).toBe(value);
+      }
+    }
     expect(within(menu).getByRole("heading", { name: "Saved progress" })).toBeTruthy();
     expect(within(menu).getByRole("heading", { name: "Recent practice" })).toBeTruthy();
   });

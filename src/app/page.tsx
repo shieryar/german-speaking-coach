@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
-import { scenarioLabels } from "@/lib/practice";
+import { modeLabels, scenarioLabels } from "@/lib/practice";
 import { formatBytes, formatDiagnosticReport, getBlobSignature } from "@/lib/audioDiagnostics";
 import {
   convertRecordingToWav,
@@ -26,6 +26,7 @@ type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scena
 type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
 
 const scenarios = Object.entries(scenarioLabels) as [Scenario, string][];
+const modes = Object.entries(modeLabels) as [PracticeMode, string][];
 
 export default function Home() {
   const [mode, setMode] = useState<PracticeMode>("conversation");
@@ -326,8 +327,7 @@ export default function Home() {
               <label>
                 Mode
                 <select value={mode} onChange={(e) => setMode(e.target.value as PracticeMode)}>
-                  <option value="conversation">Conversation first</option>
-                  <option value="strict">Strict tutor</option>
+                  {modes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
               </label>
               <label>
@@ -355,7 +355,7 @@ export default function Home() {
               {turns.slice(1, 8).length === 0 && <p className="muted">Earlier practice turns will appear here.</p>}
               {turns.slice(1, 8).map((turn) => (
                 <details key={turn.id}>
-                  <summary>{new Date(turn.createdAt).toLocaleString()} · {scenarioLabels[turn.scenario]} · {turn.mode}</summary>
+                  <summary>{new Date(turn.createdAt).toLocaleString()} · {scenarioLabels[turn.scenario]} · {modeLabels[turn.mode]}</summary>
                   <p><strong>You:</strong> {turn.transcript}</p>
                   <p><strong>Corrected:</strong> {turn.corrected}</p>
                   <p><strong>Tutor:</strong> {turn.tutorReply}</p>
@@ -385,8 +385,7 @@ export default function Home() {
         <label className="practiceOption">
           Mode
           <select value={mode} onChange={(e) => setMode(e.target.value as PracticeMode)}>
-            <option value="conversation">Conversation first</option>
-            <option value="strict">Strict tutor</option>
+            {modes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
         <label className="practiceOption">
@@ -461,7 +460,7 @@ export default function Home() {
         <h2>Recent practice</h2>
         {turns.slice(1, 8).map((turn) => (
           <details key={turn.id}>
-            <summary>{new Date(turn.createdAt).toLocaleString()} · {scenarioLabels[turn.scenario]} · {turn.mode}</summary>
+            <summary>{new Date(turn.createdAt).toLocaleString()} · {scenarioLabels[turn.scenario]} · {modeLabels[turn.mode]}</summary>
             <p><strong>You:</strong> {turn.transcript}</p>
             <p><strong>Corrected:</strong> {turn.corrected}</p>
             <p><strong>Tutor:</strong> {turn.tutorReply}</p>

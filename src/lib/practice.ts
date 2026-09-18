@@ -1,7 +1,24 @@
 import { z } from "zod";
 
-export type PracticeMode = "conversation" | "strict";
-export type Scenario = "job-interview" | "meeting" | "email" | "workplace-small-talk" | "project-explanation";
+export const modeLabels = {
+  conversation: "Conversation first",
+  strict: "Strict tutor",
+  guided: "Guided practice",
+  interview: "Interview simulation",
+  fluency: "Fluency practice",
+} as const;
+
+export type PracticeMode = keyof typeof modeLabels;
+export type Scenario = "job-interview" | "meeting" | "email" | "workplace-small-talk" | "project-explanation"
+  | "presentation" | "phone-call" | "customer-support" | "giving-feedback" | "networking";
+
+const modeInstructions: Record<PracticeMode, string> = {
+  conversation: "Continue a natural conversation with short, supportive replies and one follow-up question",
+  strict: "Focus on accuracy and ask the learner to repeat a corrected sentence only when there is a genuine error",
+  guided: "Break the selected scenario into small steps. In tutorReply, provide one useful German sentence starter and one simple question to help the learner build their next answer",
+  interview: "Act as a professional interviewer. Ask one realistic interview question at a time about the selected scenario, using the learner's answer for relevant follow-up questions. Keep language corrections in the feedback fields so tutorReply stays in character",
+  fluency: "Encourage longer, connected answers. In tutorReply, respond to the meaning and ask one open-ended question that invites reasons or examples. Keep corrections in the feedback fields and do not ask for repetition. Do not claim to assess pronunciation, pace, or pauses from a transcript",
+};
 
 export const scenarioLabels: Record<Scenario, string> = {
   "job-interview": "job interview",
@@ -9,6 +26,11 @@ export const scenarioLabels: Record<Scenario, string> = {
   email: "professional email phrasing",
   "workplace-small-talk": "workplace small talk",
   "project-explanation": "explaining automation projects",
+  presentation: "presentations",
+  "phone-call": "professional phone calls",
+  "customer-support": "customer support",
+  "giving-feedback": "giving constructive feedback",
+  networking: "professional networking",
 };
 
 const MistakeSchema = z.object({
@@ -30,7 +52,7 @@ export const PracticeResponseSchema = z.object({
 export type PracticeResponse = z.infer<typeof PracticeResponseSchema>;
 
 export function buildPracticeMessages(input: { mode: PracticeMode; scenario: Scenario; transcript: string; history?: string[] }) {
-  const modeText = input.mode === "strict" ? "strict tutor" : "conversation first";
+  const modeText = `${modeLabels[input.mode].toLowerCase()}. Mode instructions: ${modeInstructions[input.mode]}`;
   return [
     {
       role: "system" as const,

@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { buildPracticeMessages, parsePracticeResponse } from "@/lib/practice";
+import { buildPracticeMessages, parsePracticeResponse, type PracticeMode } from "@/lib/practice";
 
 describe("buildPracticeMessages", () => {
+  it.each([
+    ["guided", "sentence starter"],
+    ["interview", "one realistic interview question at a time"],
+    ["fluency", "longer, connected answers"],
+  ] as [PracticeMode, string][])("applies %s coaching to the selected scenario", (mode, instruction) => {
+    const messages = buildPracticeMessages({ mode, scenario: "customer-support", transcript: "Wie kann ich Ihnen helfen?" });
+    expect(messages[0].content).toContain(instruction);
+    expect(messages[0].content).toContain("Do not replace one grammatically correct expression with another");
+    expect(messages[1].content).toContain("Scenario: customer support");
+  });
+
   it("creates a B1/B2 job communication strict tutor prompt", () => {
     const messages = buildPracticeMessages({ mode: "strict", scenario: "job-interview", transcript: "Ich bin verantwortlich für entwickeln Power Apps." });
     const all = messages.map((m) => m.content).join("\n");
