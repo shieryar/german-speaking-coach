@@ -1,0 +1,490 @@
+"use client";
+
+import Link from "next/link";
+
+import { useEffect, useRef, useState } from "react";
+import type { PracticeMode, PracticeResponse, Scenario } from "@/lib/practice";
+import { modeLabels, scenarioLabels } from "@/lib/practice";
+import { formatBytes, formatDiagnosticReport, getBlobSignature } from "@/lib/audioDiagnostics";
+import {
+  convertRecordingToWav,
+  shouldConvertRecordingToWav,
+} from "@/lib/audioConversion";
+import {
+  buildRecordingFileName,
+  getPreferredRecordingMimeType,
+  getRecordingTimeslice,
+} from "@/lib/audioUpload";
+import { APP_VERSION, formatAppVersion } from "@/lib/appVersion";
+import { getRecordingButtonLabel, isRecordingButtonDisabled } from "@/lib/recordingControls";
+import {
+  playTutorAudio,
+  primeTutorAudio,
+  revokeObsoleteAudioUrl,
+  setTutorAudioSource,
+} from "@/lib/audioPlayback";
+
+type Turn = PracticeResponse & { id: string; mode: PracticeMode; scenario: Scenario; createdAt: string };
+type Status = "idle" | "recording" | "transcribing" | "thinking" | "speaking" | "error";
+
+const scenarios = Object.entries(scenarioLabels) as [Scenario, string][];
+const modes = Object.entries(modeLabels) as [PracticeMode, string][];
+
+export default function Home() {
+  const [mode, setMode] = useState<PracticeMode>("conversation");
+  const [scenario, setScenario] = useState<Scenario>("job-interview");
+  const [status, setStatus] = useState<Status>("idle");
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [hasLoadedTurns, setHasLoadedTurns] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const diagnosticsRef = useRef<string[]>([]);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const audioPrimePendingRef = useRef(false);
+  const audioPrimedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    window.setTimeout(() => {
+      if (cancelled) return;
+
+      try {
+        const saved = window.localStorage.getItem("german-speaking-coach-turns");
+        setTurns(saved ? JSON.parse(saved) : []);
+      } catch {
+        window.localStorage.removeItem("german-speaking-coach-turns");
+        setTurns([]);
+      } finally {
+        setHasLoadedTurns(true);
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasLoadedTurns) return;
+    localStorage.setItem("german-speaking-coach-turns", JSON.stringify(turns.slice(0, 50)));
+  }, [hasLoadedTurns, turns]);
+
+  useEffect(() => {
+    return () => {
+      revokeObsoleteAudioUrl(audioUrlRef.current, null);
+      audioUrlRef.current = null;
+    };
+  }, []);
+
+  function resetDiagnostics() {
+    const initial = [
+      `App version: ${APP_VERSION}`,
+      `Browser: ${navigator.userAgent}`,
+      `Started: ${new Date().toISOString()}`,
+    ];
+    diagnosticsRef.current = initial;
+    setDiagnostics(initial);
+  }
+
+  function appendDiagnostic(line: string) {
+    diagnosticsRef.current = [...diagnosticsRef.current, line];
+    setDiagnostics(diagnosticsRef.current);
+  }
+
+  async function startRecording() {
+    resetDiagnostics();
+    primePersistentTutorAudio("recording press");
+    setError(null);
+    setPlaybackNotice(null);
+    chunksRef.current = [];
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const preferredMimeType = getPreferredRecordingMimeType();
+      appendDiagnostic(`Preferred MIME: ${preferredMimeType || "browser default"}`);
+      const recorder = new MediaRecorder(stream, preferredMimeType ? { mimeType: preferredMimeType } : undefined);
+      recorderRef.current = recorder;
+      appendDiagnostic(`Recorder MIME: ${recorder.mimeType || "not reported"}`);
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        const mimeType = recorder.mimeType || preferredMimeType || "audio/webm";
+        const blob = new Blob(chunksRef.current, { type: mimeType });
+        appendDiagnostic(`Chunks: ${chunksRef.current.length} (${chunksRef.current.map((chunk) => formatBytes(chunk.size)).join(", ") || "none"})`);
+        appendDiagnostic(`Recorded blob: ${blob.type || "no type"}, ${formatBytes(blob.size)}, signature ${await getBlobSignature(blob) || "empty"}`);
+        await handleAudio(blob, mimeType);
+      };
+      const timeslice = getRecordingTimeslice(recorder.mimeType || preferredMimeType);
+      appendDiagnostic(`Recording mode: ${timeslice === undefined ? "single finalized file" : `${timeslice} ms chunks`}`);
+      if (timeslice === undefined) recorder.start();
+      else recorder.start(timeslice);
+      setStatus("recording");
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not access microphone";
+      appendDiagnostic(`Recording error: ${message}`);
+      setStatus("error");
+      setError(message);
+    }
+  }
+
+  function primePersistentTutorAudio(gesture: "recording press" | "recording release") {
+    const audio = audioElementRef.current;
+    if (!audio) {
+      appendDiagnostic("Autoplay prime: persistent media element unavailable");
+      return;
+    }
+    if (audioPrimedRef.current) {
+      appendDiagnostic("Autoplay prime: persistent media element already primed");
+      return;
+    }
+    if (audioPrimePendingRef.current) return;
+
+    audioPrimePendingRef.current = true;
+    appendDiagnostic(`Autoplay prime: requested on persistent media element during ${gesture}`);
+    void primeTutorAudio(audio)
+      .then((result) => {
+        audioPrimePendingRef.current = false;
+        audioPrimedRef.current = result === "primed";
+        appendDiagnostic(`Autoplay prime: ${result}`);
+      })
+      .catch((primeError) => {
+        audioPrimePendingRef.current = false;
+        const name = primeError instanceof Error ? primeError.name : "UnknownError";
+        appendDiagnostic(`Autoplay prime: failed (${name})`);
+      });
+  }
+
+  function stopRecording() {
+    if (recorderRef.current?.state === "recording") {
+      primePersistentTutorAudio("recording release");
+      recorderRef.current.stop();
+    }
+  }
+
+  function cancelDefaultTouch(event: React.TouchEvent<HTMLButtonElement>) {
+    event.preventDefault();
+  }
+
+  async function handleAudio(blob: Blob, mimeType: string) {
+    try {
+      if (blob.size < 1000) throw new Error("Recording was too short or empty. Hold the button while speaking, then release.");
+      setStatus("transcribing");
+
+      let uploadBlob = blob;
+      let uploadMimeType = mimeType;
+      if (shouldConvertRecordingToWav(mimeType)) {
+        appendDiagnostic("Conversion: MP4 → mono 16-bit PCM WAV started");
+        uploadBlob = await convertRecordingToWav(blob);
+        uploadMimeType = "audio/wav";
+        appendDiagnostic(`Converted WAV: ${formatBytes(uploadBlob.size)}, signature ${await getBlobSignature(uploadBlob)}`);
+      } else {
+        appendDiagnostic("Conversion: skipped for this MIME type");
+      }
+
+      const uploadFileName = buildRecordingFileName(uploadMimeType);
+      appendDiagnostic(`Upload: ${uploadFileName}, ${uploadMimeType}, ${formatBytes(uploadBlob.size)}`);
+      const form = new FormData();
+      form.append("audio", uploadBlob, uploadFileName);
+      const transcribe = await fetch("/api/transcribe", { method: "POST", body: form });
+      const transcribeData = await transcribe.json();
+      appendDiagnostic(`Transcription response: HTTP ${transcribe.status} ${JSON.stringify(transcribeData)}`);
+      if (!transcribe.ok) throw new Error(transcribeData.error || "Transcription failed");
+
+      setStatus("thinking");
+      const practice = await fetch("/api/practice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode,
+          scenario,
+          transcript: transcribeData.transcript,
+          history: turns.slice(0, 6).flatMap((t) => [`You: ${t.transcript}`, `Tutor: ${t.tutorReply}`]),
+        }),
+      });
+      const result = await practice.json();
+      if (!practice.ok) throw new Error(result.error || "Practice response failed");
+
+      const turn: Turn = { ...result, id: crypto.randomUUID(), mode, scenario, createdAt: new Date().toISOString() };
+      setTurns((current) => [turn, ...current]);
+
+      setStatus("speaking");
+      const speech = await fetch("/api/speak", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: turn.tutorReply }),
+      });
+      if (!speech.ok) {
+        const speechError = await speech.json().catch(() => ({ error: "Speech failed" }));
+        throw new Error(speechError.error || "Speech failed");
+      }
+      const speechBlob = await speech.blob();
+      const url = URL.createObjectURL(speechBlob);
+      const audio = audioElementRef.current;
+      if (!audio) {
+        URL.revokeObjectURL(url);
+        throw new Error("Persistent tutor audio element is unavailable");
+      }
+
+      const previousUrl = audioUrlRef.current;
+      setTutorAudioSource(audio, url);
+      audioUrlRef.current = url;
+      setAudioUrl(url);
+      appendDiagnostic("Playback source: persistent media element with generated object URL");
+      if (revokeObsoleteAudioUrl(previousUrl, url)) {
+        appendDiagnostic("Playback cleanup: revoked previous tutor audio object URL");
+      }
+
+      audio.onended = () => setStatus("idle");
+      const playback = await playTutorAudio(audio);
+      if (playback === "manual") {
+        appendDiagnostic("Playback autoplay: blocked with NotAllowedError; manual Play control available on the same element");
+        setPlaybackNotice("Safari blocked automatic audio. Tap Play below to hear the tutor reply.");
+        setStatus("idle");
+      } else {
+        appendDiagnostic("Playback autoplay: started on persistent media element");
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Something went wrong";
+      appendDiagnostic(`Processing error: ${message}`);
+      setStatus("error");
+      setError(message);
+    }
+  }
+
+  async function copyDiagnostics() {
+    await navigator.clipboard.writeText(formatDiagnosticReport(diagnosticsRef.current));
+  }
+
+  function clearProgress() {
+    setTurns([]);
+    localStorage.removeItem("german-speaking-coach-turns");
+  }
+
+  const latest = turns[0];
+  const latestIsCorrect = latest
+    ? latest.assessment === "correct" || (!latest.assessment && latest.corrected.trim() === latest.transcript.trim())
+    : false;
+  const mistakeCounts = turns.flatMap((t) => t.mistakes).reduce<Record<string, number>>((acc, mistake) => {
+    acc[mistake.topic] = (acc[mistake.topic] || 0) + 1;
+    return acc;
+  }, {});
+
+  return (
+    <main className="shell">
+      <Link className="backLink" href="/">← Back to choices</Link>
+      <section className="hero card">
+        <div className="heroCopy">
+          <p className="eyebrow">B1/B2 German · workplace · interviews · meetings</p>
+          <h1>German Speaking Coach</h1>
+          <p>No login. Speak on your iPhone, see your transcript, corrected German, a better professional version, and hear the tutor reply.</p>
+          <p className="versionBadge">{formatAppVersion()}</p>
+        </div>
+        <div className="mobileTopBar">
+          <button
+            type="button"
+            className="mobileMenuButton"
+            aria-label="Open practice menu"
+            aria-haspopup="dialog"
+            aria-expanded={isMobileMenuOpen}
+            onClick={() => setIsMobileMenuOpen(true)}
+          >
+            <span aria-hidden="true">☰</span> Menu
+          </button>
+          <div className={`status ${status}`}>{statusLabel(status)}</div>
+        </div>
+      </section>
+
+      {isMobileMenuOpen && (
+        <div className="mobileMenuOverlay">
+          <button
+            type="button"
+            className="mobileMenuBackdrop"
+            aria-label="Close practice menu"
+            onClick={() => setIsMobileMenuOpen(false)}
+          />
+          <section className="mobileMenuSheet" role="dialog" aria-modal="true" aria-label="Practice menu">
+            <div className="mobileMenuHeader">
+              <div>
+                <p className="eyebrow">German Speaking Coach</p>
+                <h2>Practice menu</h2>
+              </div>
+              <button
+                type="button"
+                className="mobileMenuClose"
+                aria-label="Close practice menu"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="mobileMenuOptions">
+              <label>
+                Mode
+                <select value={mode} onChange={(e) => setMode(e.target.value as PracticeMode)}>
+                  {modes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label>
+                Scenario
+                <select value={scenario} onChange={(e) => setScenario(e.target.value as Scenario)}>
+                  {scenarios.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <section className="mobileMenuSection">
+              <div className="progressHeader">
+                <h2>Saved progress</h2>
+                <button type="button" onClick={clearProgress} className="ghost">Clear</button>
+              </div>
+              <p>{turns.length} practice turns saved on this device.</p>
+              <h3>Repeated topics</h3>
+              {Object.keys(mistakeCounts).length === 0 ? <p className="muted">Mistakes will appear here after practice.</p> : (
+                <ul>{Object.entries(mistakeCounts).sort((a,b)=>b[1]-a[1]).map(([topic,count]) => <li key={topic}>{topic}: {count}</li>)}</ul>
+              )}
+            </section>
+
+            <section className="mobileMenuSection">
+              <h2>Recent practice</h2>
+              {turns.slice(1, 8).length === 0 && <p className="muted">Earlier practice turns will appear here.</p>}
+              {turns.slice(1, 8).map((turn) => (
+                <details key={turn.id}>
+                  <summary>{new Date(turn.createdAt).toLocaleString()} · {scenarioLabels[turn.scenario]} · {modeLabels[turn.mode]}</summary>
+                  <p><strong>You:</strong> {turn.transcript}</p>
+                  <p><strong>Corrected:</strong> {turn.corrected}</p>
+                  <p><strong>Tutor:</strong> {turn.tutorReply}</p>
+                </details>
+              ))}
+            </section>
+
+            <section className="mobileMenuSection">
+              <h2>Troubleshooting</h2>
+              {diagnostics.length === 0 ? (
+                <p className="muted">A technical report will be available here after you start a recording.</p>
+              ) : (
+                <>
+                  <p className="muted">This contains technical metadata only, not your recorded audio.</p>
+                  <pre className="mobileDiagnosticReport">{formatDiagnosticReport(diagnostics)}</pre>
+                  <button type="button" className="ghost" onClick={copyDiagnostics}>Copy troubleshooting report</button>
+                </>
+              )}
+            </section>
+
+            <p className="versionBadge mobileMenuVersion">{formatAppVersion()}</p>
+          </section>
+        </div>
+      )}
+
+      <section className="controls card">
+        <label className="practiceOption">
+          Mode
+          <select value={mode} onChange={(e) => setMode(e.target.value as PracticeMode)}>
+            {modes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <label className="practiceOption">
+          Scenario
+          <select value={scenario} onChange={(e) => setScenario(e.target.value as Scenario)}>
+            {scenarios.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+        <button
+          className="record"
+          onPointerDown={startRecording}
+          onPointerUp={stopRecording}
+          onPointerLeave={stopRecording}
+          onPointerCancel={stopRecording}
+          onTouchStart={cancelDefaultTouch}
+          disabled={isRecordingButtonDisabled(status)}
+          aria-label="Hold to record German speech. Release to stop recording."
+        >
+          {getRecordingButtonLabel(status)}
+        </button>
+      </section>
+
+      {error && <section className="card errorBox"><strong>Problem:</strong> {error}</section>}
+      {playbackNotice && <section className="card"><strong>Audio:</strong> {playbackNotice}</section>}
+
+      {diagnostics.length > 0 && (
+        <details className="card diagnosticBox" open={status === "error"}>
+          <summary>Audio troubleshooting report</summary>
+          <p className="muted">This contains technical metadata only, not your recorded audio.</p>
+          <pre>{formatDiagnosticReport(diagnostics)}</pre>
+          <button type="button" className="ghost" onClick={copyDiagnostics}>Copy troubleshooting report</button>
+        </details>
+      )}
+
+      <section className="grid">
+        <article className="card conversation">
+          <h2>Current turn</h2>
+          {!latest && <p className="muted">Start by holding “Hold to speak”. Release when you finish. The tutor will show and speak its reply.</p>}
+          {latest && (
+            <div className="turn">
+              <p className={`assessment ${latestIsCorrect ? "correct" : "needsCorrection"}`}>
+                {latestIsCorrect ? "✓ Correct as spoken" : "Correction needed"}
+              </p>
+              <Block title="You said" text={latest.transcript} />
+              <Block
+                title={latestIsCorrect ? "Your correct German" : "Corrected German"}
+                text={latest.corrected}
+                highlight
+              />
+              <Block title={latestIsCorrect ? "Optional alternative" : "Better professional version"} text={latest.betterVersion} />
+              <Block title="Why" text={latest.explanation} />
+              <Block title="Tutor says" text={latest.tutorReply} tutor />
+            </div>
+          )}
+          <audio ref={audioElementRef} controls className="audio" hidden={!audioUrl} />
+        </article>
+
+        <aside className="card progress">
+          <div className="progressHeader">
+            <h2>Saved progress</h2>
+            <button onClick={clearProgress} className="ghost">Clear</button>
+          </div>
+          <p>{turns.length} practice turns saved on this device.</p>
+          <h3>Repeated topics</h3>
+          {Object.keys(mistakeCounts).length === 0 ? <p className="muted">Mistakes will appear here after practice.</p> : (
+            <ul>{Object.entries(mistakeCounts).sort((a,b)=>b[1]-a[1]).map(([topic,count]) => <li key={topic}>{topic}: {count}</li>)}</ul>
+          )}
+        </aside>
+      </section>
+
+      <section className="card history">
+        <h2>Recent practice</h2>
+        {turns.slice(1, 8).map((turn) => (
+          <details key={turn.id}>
+            <summary>{new Date(turn.createdAt).toLocaleString()} · {scenarioLabels[turn.scenario]} · {modeLabels[turn.mode]}</summary>
+            <p><strong>You:</strong> {turn.transcript}</p>
+            <p><strong>Corrected:</strong> {turn.corrected}</p>
+            <p><strong>Tutor:</strong> {turn.tutorReply}</p>
+          </details>
+        ))}
+      </section>
+    </main>
+  );
+}
+
+function Block({ title, text, highlight, tutor }: { title: string; text: string; highlight?: boolean; tutor?: boolean }) {
+  return <div className={`block ${highlight ? "highlight" : ""} ${tutor ? "tutor" : ""}`}><span>{title}</span><p>{text}</p></div>;
+}
+
+function statusLabel(status: Status) {
+  return {
+    idle: "Ready",
+    recording: "Listening…",
+    transcribing: "Writing what you said…",
+    thinking: "Correcting…",
+    speaking: "Tutor speaking…",
+    error: "Needs attention",
+  }[status];
+}

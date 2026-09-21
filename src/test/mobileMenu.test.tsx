@@ -2,7 +2,7 @@
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import Home from "@/app/page";
+import Home from "@/app/classic/page";
 
 describe("mobile practice menu", () => {
   beforeEach(() => {

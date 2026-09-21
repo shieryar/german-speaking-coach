@@ -2,7 +2,7 @@
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import Home from "@/app/page";
+import Home from "@/app/classic/page";
 
 class FakeMediaRecorder {
   static isTypeSupported() {
