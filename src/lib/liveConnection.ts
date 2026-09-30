@@ -1,5 +1,9 @@
 import { parseTranscript, type TranscriptFragment } from "./live";
-import type { Scenario } from "./scenarios";
+import type { Difficulty } from "./scenarios";
+import { getAuth } from "./backend";
+
+export type ConnectionOptions = { missionId: string; difficulty: Difficulty; sessionId: string; retainTranscript: boolean;
+  retry?: { sourceSessionId: string; turnIndex: number; prompt: string; original: string } };
 
 export type LiveStatus = "idle" | "connecting" | "live" | "ending" | "ended" | "error";
 type Callbacks = {
@@ -24,7 +28,7 @@ export class LiveConnection {
 
   constructor(private audio: HTMLAudioElement, private callbacks: Callbacks) {}
 
-  async start(scenario: Scenario) {
+  async start(options: ConnectionOptions) {
     if (this.started || this.disposed) return;
     this.started = true;
     this.callbacks.status("connecting");
@@ -57,9 +61,11 @@ export class LiveConnection {
       await peer.setLocalDescription(await peer.createOffer());
       await this.waitForIce(peer);
       if (this.disposed) return;
+      const token = (await getAuth())?.access_token;
+      if (!token) throw new Error("Your learning session is unavailable. Reload the page and try again.");
       const response = await fetch("/api/live/session", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sdp: peer.localDescription?.sdp, scenario }), signal: this.abort.signal,
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sdp: peer.localDescription?.sdp, ...options }), signal: this.abort.signal,
       });
       const answer = await response.json();
       if (this.disposed) return;

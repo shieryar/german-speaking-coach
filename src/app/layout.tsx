@@ -8,7 +8,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "German Speaking Coach",
-  description: "No-login German B1/B2 job speaking coach with live conversations and transcripts",
+  description: "German B1/B2 speaking coach with automatic private learning sessions",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
