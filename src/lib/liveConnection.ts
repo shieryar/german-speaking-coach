@@ -1,5 +1,5 @@
 import { parseTranscript, type TranscriptFragment } from "./live";
-import type { Scenario } from "./practice";
+import type { Scenario } from "./scenarios";
 
 export type LiveStatus = "idle" | "connecting" | "live" | "ending" | "ended" | "error";
 type Callbacks = {

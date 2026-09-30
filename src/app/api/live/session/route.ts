@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { requireOpenAiKey } from "@/lib/openai";
-import { scenarioLabels, type Scenario } from "@/lib/practice";
+import { scenarioLabels, type Scenario } from "@/lib/scenarios";
 import { liveInstructions } from "@/lib/live";
 
 export const runtime = "nodejs";
 const requestSchema = z.object({
-  sdp: z.string().trim().min(1).max(60_000),
+  // SDP is line-oriented: preserve the browser's final CRLF for the provider parser.
+  sdp: z.string().min(1).max(60_000).refine((value) => value.trim().length > 0),
   scenario: z.string().refine((value) => Object.hasOwn(scenarioLabels, value)),
 });
 
@@ -42,6 +43,7 @@ export async function POST(request: NextRequest) {
       const message = response.status === 401 || response.status === 403 || response.status === 404
         ? "Live is unavailable for this API project. Check the server API key and GPT-Live-1 access."
         : response.status === 429 ? "Live capacity or API quota reached. Check billing or try again later."
+        : response.status === 400 || response.status === 422 ? "The Live service rejected the connection setup. Refresh the page and start a new session."
         : "Could not create a Live session. Please try again.";
       return NextResponse.json({ error: message }, { status: response.status === 429 ? 429 : 502 });
     }

@@ -1,13 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { scenarioLabels, type Scenario } from "@/lib/practice";
+import { scenarioLabels, type Scenario } from "@/lib/scenarios";
 import { LIVE_STORAGE_KEY, readLiveHistory, saveLiveSession, type SavedLiveSession, type TranscriptFragment } from "@/lib/live";
 import { LiveConnection, type LiveStatus } from "@/lib/liveConnection";
 
 export default function LivePage() {
-  const router = useRouter();
   const [scenario, setScenario] = useState<Scenario>("job-interview");
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [fragments, setFragments] = useState<TranscriptFragment[]>([]);
@@ -45,7 +43,7 @@ export default function LivePage() {
     alive.current = true;
     const load = setTimeout(() => {
       try { historyRef.current = readLiveHistory(localStorage); setHistory(historyRef.current); }
-      catch { setStorageNotice("Saved Live history could not be read. Classic history is unaffected."); }
+      catch { setStorageNotice("Saved conversation history could not be read."); }
       setReady(true);
     }, 0);
     const leave = () => {
@@ -104,13 +102,7 @@ export default function LivePage() {
     void instance.start(scenario);
   }
 
-  async function back() {
-    await connection.current?.end();
-    router.push("/");
-  }
-
   return <main className="shell liveScreen">
-    <button className="ghost backLink" onClick={() => void back()} disabled={status === "ending"}>← Back to choices</button>
     <header><p className="eyebrow">GPT-Live-1 · B1/B2 German</p><h1>Live Conversation</h1>
       <p className="muted">Speak naturally. Follow your words and your coach’s reply as live text.</p></header>
     <section className="card liveControls" aria-label="Conversation controls">
@@ -128,7 +120,7 @@ export default function LivePage() {
       {blocked && active && <div role="alert"><p>Your browser blocked the coach’s audio.</p><button onClick={() => void connection.current?.play()}>Play coach audio</button></div>}
     </section>
     <audio ref={audio} autoPlay playsInline />
-    <Transcript fragments={fragments} />
+    <Transcript fragments={fragments} autoScroll />
     <p className="muted">Transcripts may contain recognition errors. Coach text represents generated speech and may include audio you interrupted.</p>
     {storageNotice && <p role="alert">{storageNotice}</p>}
     <section className="card history"><h2>Saved live conversations</h2>
@@ -148,9 +140,28 @@ export default function LivePage() {
 
 const statusLabels: Record<LiveStatus, string> = { idle: "Ready", connecting: "Connecting…", live: "Connected", ending: "Ending…", ended: "Session ended", error: "Connection error" };
 function formatTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
-function Transcript({ fragments }: { fragments: TranscriptFragment[] }) {
-  return <div className="transcriptGrid">{(["user", "assistant"] as const).map((speaker) => <section className="card transcriptPanel" key={speaker} aria-label={speaker === "user" ? "Your transcript" : "Coach transcript"}>
-    <h2>{speaker === "user" ? "You" : "Coach"}</h2>
-    <p lang="de">{fragments.filter((fragment) => fragment.speaker === speaker).map((fragment) => fragment.text).join("") || "Words will appear here…"}</p>
-  </section>)}</div>;
+function Transcript({ fragments, autoScroll = false }: { fragments: TranscriptFragment[]; autoScroll?: boolean }) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const messages: { id: string; speaker: TranscriptFragment["speaker"]; text: string }[] = [];
+  for (const fragment of fragments) {
+    if (!fragment.text) continue;
+    const previous = messages.at(-1);
+    if (previous?.speaker === fragment.speaker) previous.text += fragment.text;
+    else messages.push({ id: fragment.eventId, speaker: fragment.speaker, text: fragment.text });
+  }
+
+  useEffect(() => {
+    if (autoScroll && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
+  }, [fragments, autoScroll]);
+
+  return <section className="card transcriptChat" aria-label={autoScroll ? "Live transcript" : "Saved transcript"}>
+    <h2>Conversation</h2>
+    <div className="transcriptViewport" ref={viewport} role="log" aria-label="Conversation messages" aria-live={autoScroll ? "polite" : "off"} tabIndex={0}>
+      {!messages.length && <p className="muted transcriptEmpty">Your conversation will appear here as you speak.</p>}
+      {messages.map((message) => <div className={`transcriptMessage ${message.speaker === "user" ? "fromUser" : "fromCoach"}`} key={message.id}>
+        <span className="transcriptSpeaker">{message.speaker === "user" ? "You" : "Coach"}</span>
+        <p className="transcriptBubble" lang="de">{message.text}</p>
+      </div>)}
+    </div>
+  </section>;
 }

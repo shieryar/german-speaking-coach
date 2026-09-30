@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { scenarioLabels, type Scenario } from "./practice";
+import { scenarioLabels, type Scenario } from "./scenarios";
 
 export const LIVE_STORAGE_KEY = "german-speaking-coach-live-sessions";
 export const fragmentSchema = z.object({

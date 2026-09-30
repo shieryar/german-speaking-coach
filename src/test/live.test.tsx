@@ -4,9 +4,6 @@ import Home from "@/app/page";
 import LivePage from "@/app/live/page";
 import { LIVE_STORAGE_KEY, readLiveHistory, saveLiveSession, type SavedLiveSession } from "@/lib/live";
 
-const push = vi.hoisted(() => vi.fn());
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-
 class FakeChannel {
   readyState = "open";
   onmessage?: (event: { data: string }) => void;
@@ -42,7 +39,7 @@ const fragment = (speaker: "input" | "output", text: string, id: string) => ({
 });
 
 beforeEach(() => {
-  localStorage.clear(); FakePeer.instances = []; push.mockClear(); track.stop.mockClear(); track.enabled = true;
+  localStorage.clear(); FakePeer.instances = []; track.stop.mockClear(); track.enabled = true;
   getUserMedia.mockReset().mockResolvedValue(stream);
   Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
   vi.stubGlobal("RTCPeerConnection", FakePeer);
@@ -61,26 +58,29 @@ async function startPage() {
 }
 
 describe("practice screens", () => {
-  it("links to both screens without asking for a microphone", () => {
+  it("opens Live Conversation directly without starting a microphone or paid session", async () => {
     render(<Home />);
-    expect(screen.getByRole("link", { name: /Classic Practice/ }).getAttribute("href")).toBe("/classic");
-    expect(screen.getByRole("link", { name: /Live Conversation/ }).getAttribute("href")).toBe("/live");
+    await waitFor(() => expect((screen.getByText("Start conversation") as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByRole("heading", { name: "Live Conversation" })).toBeTruthy();
+    expect(screen.queryByText(/Classic Practice|Back to choices/)).toBeNull();
     expect(getUserMedia).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it("keeps overlapping transcripts verbatim, saves timestamps, mutes and ends gracefully", async () => {
-    localStorage.setItem("german-speaking-coach-turns", '[{"id":"classic"}]');
+    localStorage.setItem("unrelated-browser-data", '[{"id":"other"}]');
     await startPage();
     emit(fragment("input", "Ich", "u1"));
     emit(fragment("output", "Guten Tag.", "a1"));
     emit(fragment("input", " arbeite hier.", "u2"));
     emit(fragment("input", " arbeite hier.", "u2"));
-    expect(screen.getAllByRole("region", { name: "Your transcript" })[0].textContent).toContain("Ich arbeite hier.");
-    expect(screen.getAllByRole("region", { name: "Coach transcript" })[0].textContent).toContain("Guten Tag.");
+    const transcript = screen.getByRole("region", { name: "Live transcript" });
+    expect(Array.from(transcript.querySelectorAll(".fromUser p"), (bubble) => bubble.textContent).join("")).toBe("Ich arbeite hier.");
+    expect(transcript.querySelector(".fromCoach p")?.textContent).toBe("Guten Tag.");
     const saved = readLiveHistory(localStorage)[0];
     expect(saved.fragments).toHaveLength(3);
     expect(saved.fragments[0].startMs).toBe(100);
-    expect(localStorage.getItem("german-speaking-coach-turns")).toBe('[{"id":"classic"}]');
+    expect(localStorage.getItem("unrelated-browser-data")).toBe('[{"id":"other"}]');
     fireEvent.click(screen.getByText("Mute microphone")); expect(track.enabled).toBe(false);
     fireEvent.click(screen.getByText("Unmute microphone")); expect(track.enabled).toBe(true);
     fireEvent.click(screen.getByText("End conversation"));
@@ -91,18 +91,27 @@ describe("practice screens", () => {
     expect(screen.getByRole("status").textContent).toContain("Session ended");
   });
 
+  it("groups streaming words into alternating bubbles and scrolls with each update", async () => {
+    await startPage();
+    const log = screen.getByRole("log", { name: "Conversation messages" });
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 600 });
+    emit(fragment("output", "Guten", "a1"));
+    expect(log.scrollTop).toBe(600);
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 800 });
+    emit(fragment("output", " Tag.", "a2"));
+    expect(log.scrollTop).toBe(800);
+    emit(fragment("input", "Hallo.", "u1"));
+    emit(fragment("output", "Wie geht es Ihnen?", "a3"));
+    expect(Array.from(log.querySelectorAll(".transcriptBubble"), (bubble) => bubble.textContent))
+      .toEqual(["Guten Tag.", "Hallo.", "Wie geht es Ihnen?"]);
+    expect(Array.from(log.querySelectorAll(".transcriptSpeaker"), (speaker) => speaker.textContent))
+      .toEqual(["Coach", "You", "Coach"]);
+  });
+
   it("does not create two sessions from repeated Start clicks", async () => {
     await startPage();
     fireEvent.click(screen.getByText("Start conversation"));
     expect(getUserMedia).toHaveBeenCalledTimes(1); expect(fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("waits for closure before navigating through the back control", async () => {
-    await startPage();
-    fireEvent.click(screen.getByText(/Back to choices/));
-    expect(push).not.toHaveBeenCalled();
-    emit({ type: "session.closed" });
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
   });
 
   it("retains transcripts after network loss and ignores late events when retrying", async () => {
@@ -146,16 +155,16 @@ describe("practice screens", () => {
     await waitFor(() => expect(screen.queryByText("Play coach audio")).toBeNull());
   });
 
-  it("reloads saved transcripts and deletes them without touching Classic history", async () => {
+  it("reloads saved transcripts and deletes them without touching unrelated browser data", async () => {
     const saved: SavedLiveSession = { id: "saved", scenario: "meeting", createdAt: new Date().toISOString(), seconds: 10,
       fragments: [{ eventId: "1", speaker: "user", text: "Gespeichert", startMs: 0, endMs: 100 }] };
     localStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify([saved]));
-    localStorage.setItem("german-speaking-coach-turns", "[]");
+    localStorage.setItem("unrelated-browser-data", "[]");
     render(<LivePage />);
     await waitFor(() => expect(screen.getByText("Gespeichert")).toBeTruthy());
     fireEvent.click(screen.getByText("Delete transcript"));
     expect(readLiveHistory(localStorage)).toEqual([]);
-    expect(localStorage.getItem("german-speaking-coach-turns")).toBe("[]");
+    expect(localStorage.getItem("unrelated-browser-data")).toBe("[]");
   });
 
   it("releases the connection on unmount", async () => {

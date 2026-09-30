@@ -24,6 +24,31 @@ it("rejects invalid scenarios and cross-origin requests before contacting OpenAI
   expect((await POST(request({ sdp: "offer", scenario: "meeting" }, "https://other.example"))).status).toBe(403);
   expect(fetch).not.toHaveBeenCalled();
 });
+it("preserves the SDP offer's final CRLF required by the provider parser", async () => {
+  const sdp = "v=0\r\no=- 123 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n";
+  vi.mocked(fetch).mockImplementation(async (_url, init) => {
+    const body = JSON.parse(init?.body as string);
+    return body.transport.sdp.endsWith("\r\n")
+      ? new Response(JSON.stringify({ session: { id: "live_123" }, transport: { sdp: "answer" } }))
+      : new Response(JSON.stringify({ error: { code: "invalid_offer" } }), { status: 400 });
+  });
+  const response = await POST(request({ sdp, scenario: "meeting" }));
+  expect(response.status).toBe(201);
+  const body = JSON.parse(vi.mocked(fetch).mock.calls[0][1]?.body as string);
+  expect(body.transport.sdp).toBe(sdp);
+});
+it("rejects whitespace-only offers before contacting OpenAI", async () => {
+  expect((await POST(request({ sdp: " \r\n\t", scenario: "meeting" }))).status).toBe(400);
+  expect(fetch).not.toHaveBeenCalled();
+});
+it("explains rejected connection setup without exposing the provider response", async () => {
+  vi.mocked(fetch).mockResolvedValue(new Response("sensitive upstream detail", { status: 400 }));
+  const response = await POST(request({ sdp: "offer", scenario: "meeting" }));
+  expect(response.status).toBe(502);
+  const body = await response.json();
+  expect(body.error).toContain("rejected the connection setup");
+  expect(body.error).not.toContain("sensitive");
+});
 it("reports access errors without exposing upstream secrets", async () => {
   vi.mocked(fetch).mockResolvedValue(new Response("sensitive upstream detail", { status: 403 }));
   const response = await POST(request({ sdp: "offer", scenario: "meeting" }));
