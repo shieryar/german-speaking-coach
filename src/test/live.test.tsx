@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
 import LivePage from "@/app/live/page";
+import HistoryPage from "@/app/history/page";
 import { LIVE_STORAGE_KEY, readLiveHistory, saveLiveSession, type SavedLiveSession } from "@/lib/live";
 
 class FakeChannel {
@@ -65,6 +66,11 @@ describe("practice screens", () => {
     expect(screen.queryByText(/Classic Practice|Back to choices/)).toBeNull();
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
+    const controls = screen.getByRole("region", { name: "Conversation controls" });
+    const transcript = screen.getByRole("region", { name: "Live transcript" });
+    expect(controls.compareDocumentPosition(transcript) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Past conversations" }).getAttribute("href")).toBe("/history");
+    expect(screen.queryByRole("region", { name: "Past conversations" })).toBeNull();
   });
 
   it("keeps overlapping transcripts verbatim, saves timestamps, mutes and ends gracefully", async () => {
@@ -160,7 +166,7 @@ describe("practice screens", () => {
       fragments: [{ eventId: "1", speaker: "user", text: "Gespeichert", startMs: 0, endMs: 100 }] };
     localStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify([saved]));
     localStorage.setItem("unrelated-browser-data", "[]");
-    render(<LivePage />);
+    render(<HistoryPage />);
     await waitFor(() => expect(screen.getByText("Gespeichert")).toBeTruthy());
     fireEvent.click(screen.getByText("Delete transcript"));
     expect(readLiveHistory(localStorage)).toEqual([]);

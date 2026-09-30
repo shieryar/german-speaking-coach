@@ -4,19 +4,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { scenarioLabels, type Scenario } from "@/lib/scenarios";
 import { LIVE_STORAGE_KEY, readLiveHistory, saveLiveSession, type SavedLiveSession, type TranscriptFragment } from "@/lib/live";
 import { LiveConnection, type LiveStatus } from "@/lib/liveConnection";
+import SiteNav from "@/app/components/SiteNav";
+import Transcript from "@/app/components/Transcript";
 
 export default function LivePage() {
   const [scenario, setScenario] = useState<Scenario>("job-interview");
   const [status, setStatus] = useState<LiveStatus>("idle");
   const [fragments, setFragments] = useState<TranscriptFragment[]>([]);
-  const [history, setHistory] = useState<SavedLiveSession[]>([]);
   const [seconds, setSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const [error, setError] = useState("");
   const [storageNotice, setStorageNotice] = useState("");
   const [blocked, setBlocked] = useState(false);
   const [ready, setReady] = useState(false);
-  const [currentId, setCurrentId] = useState<string | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
   const connection = useRef<LiveConnection | null>(null);
   const current = useRef<SavedLiveSession | null>(null);
@@ -28,7 +28,6 @@ export default function LivePage() {
 
   const persist = useCallback((items: SavedLiveSession[]) => {
     historyRef.current = items;
-    if (alive.current) setHistory(items);
     try { localStorage.setItem(LIVE_STORAGE_KEY, JSON.stringify(items)); }
     catch { if (alive.current) setStorageNotice("Browser storage is unavailable or full. This transcript may not survive closing the page."); }
   }, []);
@@ -42,7 +41,7 @@ export default function LivePage() {
   useEffect(() => {
     alive.current = true;
     const load = setTimeout(() => {
-      try { historyRef.current = readLiveHistory(localStorage); setHistory(historyRef.current); }
+      try { historyRef.current = readLiveHistory(localStorage); }
       catch { setStorageNotice("Saved conversation history could not be read."); }
       setReady(true);
     }, 0);
@@ -74,7 +73,6 @@ export default function LivePage() {
     busy.current = true;
     connection.current?.dispose();
     current.current = { id: crypto.randomUUID(), scenario, createdAt: new Date().toISOString(), fragments: [], seconds: 0 };
-    setCurrentId(current.current.id);
     startedAt.current = 0;
     setFragments([]); setSeconds(0); setMuted(false); setError(""); setBlocked(false);
     const instance = new LiveConnection(audio.current, {
@@ -102,66 +100,44 @@ export default function LivePage() {
     void instance.start(scenario);
   }
 
-  return <main className="shell liveScreen">
-    <header><p className="eyebrow">GPT-Live-1 · B1/B2 German</p><h1>Live Conversation</h1>
-      <p className="muted">Speak naturally. Follow your words and your coach’s reply as live text.</p></header>
-    <section className="card liveControls" aria-label="Conversation controls">
-      <label>Scenario<select value={scenario} disabled={active} onChange={(event) => setScenario(event.target.value as Scenario)}>
-        {Object.entries(scenarioLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select></label>
-      <p className="muted">Voice sessions cost US$0.05/minute, billed per second. Starting a connection bills 15 seconds, credited toward the session. Muting keeps the paid session running.</p>
-      <div className="liveButtons">
-        <button className="record" disabled={active || !ready} onClick={start}>{status === "error" || status === "ended" ? "Start new session" : "Start conversation"}</button>
-        <button className="ghost" disabled={status !== "live"} onClick={() => { connection.current?.mute(!muted); setMuted(!muted); }}>{muted ? "Unmute microphone" : "Mute microphone"}</button>
-        <button className="ghost" disabled={!active || status === "ending"} onClick={() => void connection.current?.end()}>End conversation</button>
-      </div>
-      <p role="status">{statusLabels[status]}{status === "live" && muted ? " · Microphone muted" : ""} · {formatTime(seconds)}</p>
-      {error && <p role="alert" className="errorBox">{error}</p>}
-      {blocked && active && <div role="alert"><p>Your browser blocked the coach’s audio.</p><button onClick={() => void connection.current?.play()}>Play coach audio</button></div>}
-    </section>
+  return <main className="siteShell liveScreen">
+    <SiteNav current="live" />
+
+    <header className="pageHeader">
+      <h1>Live Conversation</h1>
+      <p>Choose a scenario, then start speaking.</p>
+    </header>
+
+    <div className="workspaceStack">
+      <section className="panel liveControls" aria-label="Conversation controls">
+        <div className="panelHeading"><h2>Session controls</h2></div>
+        <div className="controlsGrid">
+        <div>
+        <label className="scenarioLabel" htmlFor="scenario">Your scenario</label>
+        <div className="selectWrap"><select id="scenario" value={scenario} disabled={active} onChange={(event) => setScenario(event.target.value as Scenario)}>
+          {Object.entries(scenarioLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select><span aria-hidden="true">⌄</span></div>
+        <div className="sessionCost"><span className="costIcon" aria-hidden="true">i</span><p>Voice sessions cost US$0.05/minute, billed per second. Starting a connection bills 15 seconds, credited toward the session. Muting keeps the paid session running.</p></div>
+        </div>
+        <div>
+        <div className="liveButtons">
+          <button className="record" disabled={active || !ready} onClick={start}><span className="buttonMic" aria-hidden="true">✦</span>{status === "error" || status === "ended" ? "Start new session" : "Start conversation"}<span aria-hidden="true">↗</span></button>
+          <div className="secondaryButtons"><button className="ghost" disabled={status !== "live"} onClick={() => { connection.current?.mute(!muted); setMuted(!muted); }}>{muted ? "Unmute microphone" : "Mute microphone"}</button>
+          <button className="ghost" disabled={!active || status === "ending"} onClick={() => void connection.current?.end()}>End conversation</button></div>
+        </div>
+        <div className="sessionStatus" role="status"><span className={`statusDot ${status === "live" ? "statusDotLive" : ""}`} /><span>{statusLabels[status]}{status === "live" && muted ? " · Microphone muted" : ""}</span><span className="sessionTimer">{formatTime(seconds)}</span></div>
+        {error && <p role="alert" className="errorBox">{error}</p>}
+        {blocked && active && <div className="playbackAlert" role="alert"><p>Your browser blocked the coach&apos;s audio.</p><button onClick={() => void connection.current?.play()}>Play coach audio</button></div>}
+        </div>
+        </div>
+      </section>
+
+      <div className="transcriptColumn"><Transcript fragments={fragments} autoScroll /><p className="transcriptNote">Transcripts may contain recognition errors. Coach text represents generated speech and may include audio you interrupted.</p></div>
+    </div>
     <audio ref={audio} autoPlay playsInline />
-    <Transcript fragments={fragments} autoScroll />
-    <p className="muted">Transcripts may contain recognition errors. Coach text represents generated speech and may include audio you interrupted.</p>
-    {storageNotice && <p role="alert">{storageNotice}</p>}
-    <section className="card history"><h2>Saved live conversations</h2>
-      <p className="muted">The latest 20 transcripts are saved in this browser. Audio is not saved.</p>
-      {!history.length && <p>No saved conversations yet.</p>}
-      {history.map((session) => <details key={session.id}>
-        <summary>{scenarioLabels[session.scenario as Scenario] || session.scenario} · {new Date(session.createdAt).toLocaleString()} · {formatTime(session.seconds)}</summary>
-        <Transcript fragments={session.fragments} />
-        <button className="ghost" disabled={active && session.id === currentId} onClick={() => {
-          if (current.current?.id === session.id) current.current = null;
-          persist(historyRef.current.filter((item) => item.id !== session.id));
-        }}>Delete transcript</button>
-      </details>)}
-    </section>
-  </main>;
-}
+    {storageNotice && <p role="alert" className="storageNotice">{storageNotice}</p>}
+    <footer className="siteFooter">German Coach · B1 / B2</footer>
+  </main>;}
 
 const statusLabels: Record<LiveStatus, string> = { idle: "Ready", connecting: "Connecting…", live: "Connected", ending: "Ending…", ended: "Session ended", error: "Connection error" };
 function formatTime(seconds: number) { return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`; }
-function Transcript({ fragments, autoScroll = false }: { fragments: TranscriptFragment[]; autoScroll?: boolean }) {
-  const viewport = useRef<HTMLDivElement>(null);
-  const messages: { id: string; speaker: TranscriptFragment["speaker"]; text: string }[] = [];
-  for (const fragment of fragments) {
-    if (!fragment.text) continue;
-    const previous = messages.at(-1);
-    if (previous?.speaker === fragment.speaker) previous.text += fragment.text;
-    else messages.push({ id: fragment.eventId, speaker: fragment.speaker, text: fragment.text });
-  }
-
-  useEffect(() => {
-    if (autoScroll && viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
-  }, [fragments, autoScroll]);
-
-  return <section className="card transcriptChat" aria-label={autoScroll ? "Live transcript" : "Saved transcript"}>
-    <h2>Conversation</h2>
-    <div className="transcriptViewport" ref={viewport} role="log" aria-label="Conversation messages" aria-live={autoScroll ? "polite" : "off"} tabIndex={0}>
-      {!messages.length && <p className="muted transcriptEmpty">Your conversation will appear here as you speak.</p>}
-      {messages.map((message) => <div className={`transcriptMessage ${message.speaker === "user" ? "fromUser" : "fromCoach"}`} key={message.id}>
-        <span className="transcriptSpeaker">{message.speaker === "user" ? "You" : "Coach"}</span>
-        <p className="transcriptBubble" lang="de">{message.text}</p>
-      </div>)}
-    </div>
-  </section>;
-}
